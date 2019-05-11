@@ -4,6 +4,8 @@
 #include <ESP8266mDNS.h>          //Support .local URLs
 #include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <ArduinoOTA.h>           //Handle updates OTA
+//#include <WebOTA.h> --- In the future I should switch to this when the server is ready
 
 #define PIN 4 // Which pin on the Arduino is connected to the NeoPixels?
 #define NUMPIXELS 16 // How many NeoPixels are attached to the Arduino?
@@ -12,11 +14,12 @@ uint32_t defaultColor = pixels.Color(255, 241, 224); // Default light color (war
 //uint32_t blue = pixels.Color(255, 255, 200);
 ESP8266WebServer server(80);
 String header; //variable to store the HTTP request
+float ver = 0.1; //Update for response to the server
 
 // SERVER HANDLER FUNCTIONS------------------------------------------>
 void handleStatus(){
   Serial.println(F("SERVER: Status request"));
-  server.send(200, "text/plain", "The light server is on.");
+  server.send(200, "application/json", "{\"status\":\"ok\",\"version\":\"" + String(ver) + "\"}");
 }
 
 void handleColor(){
@@ -65,6 +68,34 @@ void setup() {
   server.onNotFound(handleNotFound);
   server.begin();
 
+  //OTA Setup
+  // All of this code below should get replaced when I switch to the webOTA framework in production...
+  // To use a specific port and path uncomment this line
+  // Defaults are 8080 and "/webota"
+  // webota.init(8888, "/update");
+  // BUT FOR NOW>>>>
+  ArduinoOTA.onStart([]() {
+    Serial.println("Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
+  Serial.println("Ready");
+  //Serial.print("IP address: ");
+  //Serial.println(WiFi.localIP());
+
 }
 
 void loop() {
@@ -75,5 +106,7 @@ void loop() {
    * /off . Turn all LEDs off
    */
   server.handleClient();
+  ArduinoOTA.handle();
+  //webota.handle();
    
 }
