@@ -4,6 +4,8 @@
 #include <ESP8266mDNS.h>          //Support .local URLs
 #include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <FS.h>                   //Handles saving files to SPIFFS
+#include <ArduinoJson.h>          //For configuration files which are sent / stored in JSON
 #include <ArduinoOTA.h>           //Handle updates OTA
 //#include <WebOTA.h> --- In the future I should switch to this when the server is ready
 
@@ -35,6 +37,33 @@ void handleColor(){
   server.send(200, "text/plain", "Color change request.");
 }
 
+void handlePowerConfig(){
+  const size_t capacity = 17*JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(16) + 410;
+  DynamicJsonBuffer jsonBuffer(capacity);
+  JsonObject& root = jsonBuffer.parseObject(server.arg("plain"));
+  File file = SPIFFS.open("/power_config.txt","w");
+  if(!file){
+    server.send(500, "text/plain", "Unable to open config file for saving.");
+  } else {
+    if (root.printTo(file) == 0) {
+      server.send(500, "text/plain", "Unable to save to config file.");
+    } else {
+      server.send(200, "application/json", "{\"status\":\"success\"}");
+    }
+    file.close();
+  }
+}
+
+void handlePowerConfigGet(){
+  File file = SPIFFS.open("/power_config.txt", "r");
+  if(!file){
+    server.send(500, "text/plain", "Unable to open config file.");
+  } else {
+    server.streamFile(file, "application/json");
+    file.close();
+  }
+}
+
 void handleNotFound(){
   Serial.println(F("SERVER: Not found"));
   server.send(404, "text/plain", "Not found.");
@@ -49,6 +78,9 @@ void setup() {
     pixels.setPixelColor(i, defaultColor);
   }
   pixels.show();
+
+  //Setup file storage
+  SPIFFS.begin();
 
   //Wifi setup
   WiFi.hostname("whitewolf-lights");
@@ -65,6 +97,8 @@ void setup() {
   //Server setup
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/color", HTTP_GET, handleColor);
+  server.on("/config/power", HTTP_POST, handlePowerConfig);
+  server.on("/config/power", HTTP_GET, handlePowerConfigGet);
   server.onNotFound(handleNotFound);
   server.begin();
 
@@ -110,3 +144,5 @@ void loop() {
   //webota.handle();
    
 }
+
+
