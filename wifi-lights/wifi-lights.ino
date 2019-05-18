@@ -4,6 +4,10 @@
 #include <ESP8266mDNS.h>          //Support .local URLs
 #include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
 #include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <FS.h>                   //Handles saving files to SPIFFS
+#include <ArduinoJson.h>          //For configuration files which are sent / stored in JSON
+#include <ArduinoOTA.h>           //Handle updates OTA
+//#include <WebOTA.h> --- In the future I should switch to this when the server is ready
 
 #define PIN 4 // Which pin on the Arduino is connected to the NeoPixels?
 #define NUMPIXELS 16 // How many NeoPixels are attached to the Arduino?
@@ -12,11 +16,12 @@ uint32_t defaultColor = pixels.Color(255, 241, 224); // Default light color (war
 //uint32_t blue = pixels.Color(255, 255, 200);
 ESP8266WebServer server(80);
 String header; //variable to store the HTTP request
+float ver = 0.1; //Update for response to the server
 
 // SERVER HANDLER FUNCTIONS------------------------------------------>
 void handleStatus(){
   Serial.println(F("SERVER: Status request"));
-  server.send(200, "text/plain", "The light server is on.");
+  server.send(200, "application/json", "{\"status\":\"ok\",\"version\":\"" + String(ver) + "\"}");
 }
 
 void handleColor(){
@@ -30,6 +35,33 @@ void handleColor(){
   }
   pixels.show();
   server.send(200, "text/plain", "Color change request.");
+}
+
+void handlePowerConfig(){
+  const size_t capacity = 17*JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(16) + 410;
+  DynamicJsonBuffer jsonBuffer(capacity);
+  JsonObject& root = jsonBuffer.parseObject(server.arg("plain"));
+  File file = SPIFFS.open("/power_config.txt","w");
+  if(!file){
+    server.send(500, "text/plain", "Unable to open config file for saving.");
+  } else {
+    if (root.printTo(file) == 0) {
+      server.send(500, "text/plain", "Unable to save to config file.");
+    } else {
+      server.send(200, "application/json", "{\"status\":\"success\"}");
+    }
+    file.close();
+  }
+}
+
+void handlePowerConfigGet(){
+  File file = SPIFFS.open("/power_config.txt", "r");
+  if(!file){
+    server.send(500, "text/plain", "Unable to open config file.");
+  } else {
+    server.streamFile(file, "application/json");
+    file.close();
+  }
 }
 
 void handleNotFound(){
@@ -47,6 +79,9 @@ void setup() {
   }
   pixels.show();
 
+  //Setup file storage
+  SPIFFS.begin();
+
   //Wifi setup
   WiFi.hostname("whitewolf-lights");
   WiFiManager wifiManager; // Start the wifimanager
@@ -62,8 +97,38 @@ void setup() {
   //Server setup
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/color", HTTP_GET, handleColor);
+  server.on("/config/power", HTTP_POST, handlePowerConfig);
+  server.on("/config/power", HTTP_GET, handlePowerConfigGet);
   server.onNotFound(handleNotFound);
   server.begin();
+
+  //OTA Setup
+  // All of this code below should get replaced when I switch to the webOTA framework in production...
+  // To use a specific port and path uncomment this line
+  // Defaults are 8080 and "/webota"
+  // webota.init(8888, "/update");
+  // BUT FOR NOW>>>>
+  ArduinoOTA.onStart([]() {
+    Serial.println("Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
+  Serial.println("Ready");
+  //Serial.print("IP address: ");
+  //Serial.println(WiFi.localIP());
 
 }
 
@@ -75,5 +140,9 @@ void loop() {
    * /off . Turn all LEDs off
    */
   server.handleClient();
+  ArduinoOTA.handle();
+  //webota.handle();
    
 }
+
+
