@@ -48,7 +48,26 @@ void handlePowerConfig(){
     if (root.printTo(file) == 0) {
       server.send(500, "text/plain", "Unable to save to config file.");
     } else {
-      server.send(200, "application/json", "{\"status\":\"success\"}");
+      server.sendHeader("Access-Control-Allow-Origin","*");
+      server.send(200, "text/plain", "Ok: New config stored.");
+    }
+    file.close();
+  }
+}
+
+void handleSwitchConfig(){
+  const size_t capacity = JSON_ARRAY_SIZE(3) + 3*JSON_ARRAY_SIZE(16) + 49*JSON_OBJECT_SIZE(3) + 860;
+  DynamicJsonBuffer jsonBuffer(capacity);
+  JsonObject& root = jsonBuffer.parseObject(server.arg("plain"));
+  File file = SPIFFS.open("/switch_config.txt","w");
+  if(!file){
+    server.send(500, "text/plain", "Unable to open config file for saving.");
+  } else {
+    if (root.printTo(file) == 0) {
+      server.send(500, "text/plain", "Unable to save to config file.");
+    } else {
+      server.sendHeader("Access-Control-Allow-Origin","*");
+      server.send(200, "text/plain", "Ok: New config stored.");
     }
     file.close();
   }
@@ -63,6 +82,18 @@ void handlePowerConfigGet(){
     file.close();
   }
 }
+
+void handleSwitchConfigGet(){
+  File file = SPIFFS.open("/switch_config.txt", "r");
+  if(!file){
+    server.send(500, "text/plain", "Unable to open config file.");
+  } else {
+    server.streamFile(file, "application/json");
+    file.close();
+  }
+}
+
+
 
 void handleNotFound(){
   Serial.println(F("SERVER: Not found"));
@@ -99,6 +130,8 @@ void setup() {
   server.on("/color", HTTP_GET, handleColor);
   server.on("/config/power", HTTP_POST, handlePowerConfig);
   server.on("/config/power", HTTP_GET, handlePowerConfigGet);
+  server.on("/config/switch", HTTP_POST, handleSwitchConfig);
+  server.on("/config/switch", HTTP_GET, handleSwitchConfigGet);
   server.onNotFound(handleNotFound);
   server.begin();
 
